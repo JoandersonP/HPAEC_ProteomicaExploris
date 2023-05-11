@@ -6,7 +6,7 @@ format: html
 ## Descrição geral das análises do secretoma
 
 Análise proteômica dos efeitos da serinoproteinase PA-BJ do veneno da *Bothrops jararaca* sobre o secretoma de células HPAEC. As buscas foram realizadas usando o software MaxQuant. Os resultados foram analisados usando a linguagem R.
-
+## consultar o script "HPAEC_ProteomicaVelos"
 
 ```{r}
 #| echo: true
@@ -31,9 +31,8 @@ library(circlize)
 
 ```
 
-
 ## Descrição geral da análise usando FragPipe
-Análise proteômica dos efeitos da serinoproteinase PABj do veneno da *Bothrops jararaca* sobre células HPAEC (lisados). As buscas foram realizadas usando FragPipe. Os resultados foram analisados usando a linguagem R.
+Análise proteômica dos efeitos da serinoproteinase PABJ do veneno da *Bothrops jararaca* sobre células HPAEC (lisados). As buscas foram realizadas usando FragPipe. Os resultados foram analisados usando a linguagem R.
 
 ```{r}
 #| echo: false
