@@ -1,0 +1,463 @@
+---
+title: "Caracterização citotóxica e proteômica dos efeitos da serinoproteinase PA-BJ, do veneno da Bothrops jararaca, sobre células endoteliais"
+format: html
+---
+
+## Descrição geral das análises do secretoma
+
+Análise proteômica dos efeitos da serinoproteinase PA-BJ do veneno da *Bothrops jararaca* sobre o secretoma de células HPAEC. As buscas foram realizadas usando o software MaxQuant. Os resultados foram analisados usando a linguagem R.
+
+
+```{r}
+#| echo: true
+#| warning: false
+#| layout-ncol: 1
+#| column: page
+library(tidyverse)
+library(naniar)
+library(ggpubr)
+library(kableExtra)
+library(limma)
+library(Biobase)
+library(corrplot)
+library(janitor)
+library(factoextra)
+library(cluster)
+library(ggrepel)
+library(ggfortify)
+library(pheatmap)
+library(dendextend)
+library(circlize)
+
+```
+
+
+## Descrição geral da análise usando FragPipe
+Análise proteômica dos efeitos da serinoproteinase PABj do veneno da *Bothrops jararaca* sobre células HPAEC (lisados). As buscas foram realizadas usando FragPipe. Os resultados foram analisados usando a linguagem R.
+
+```{r}
+#| echo: false
+#| warning: false
+#| fig-height: 18
+#| fig-width: 20
+#| fig.align: center
+combined_protein_1 <- read_tsv("./combined_protein_1.tsv")
+combined_protein_2 <- read_tsv("./combined_protein_2.tsv")
+
+combined1_filtered1 <- combined_protein_1 %>% 
+  rename_with(~(gsub("MaxLFQ Intensity", "", .x, fixed = TRUE))) %>% 
+  filter(str_detect(Organism, "sapiens", negate = FALSE) &
+  str_detect(Description, "Keratin", negate = TRUE) &
+  str_detect(Description, "albumin", negate = TRUE)
+  )
+combined1_filtered1$Protein <- gsub("sp\\|", "", combined1_filtered1$Protein)
+combined1_filtered1$Protein <- gsub("\\_H.*", "", combined1_filtered1$Protein)
+combined1_filtered1$Protein <- gsub(".*\\_", "", combined1_filtered1$Protein)
+
+Mat_1 <- combined1_filtered1[,c(1,63:74)]
+colnames(Mat_1) <- c("protein", "C-1", "C-2", "C-3","C-4", "C-5", "C-6", "T-1", "T-2", "T-3", "T-4", "T-5", "T-6")
+Mat1_log1 <- as.matrix(log2(Mat_1[-1]))
+rownames(Mat1_log1) <- Mat_1$protein
+Mat1_log1[Mat1_log1 == "-Inf"] <- NA
+
+combined2_filtered2 <- combined_protein_2 %>% 
+  rename_with(~(gsub("MaxLFQ Intensity", "", .x, fixed = TRUE))) %>% 
+  filter(str_detect(Organism, "sapiens", negate = FALSE) &
+  str_detect(Description, "Keratin", negate = TRUE) &
+  str_detect(Description, "albumin", negate = TRUE)
+  )
+combined2_filtered2$Protein <- gsub("sp\\|", "", combined2_filtered2$Protein)
+combined2_filtered2$Protein <- gsub("\\_H.*", "", combined2_filtered2$Protein)
+combined2_filtered2$Protein <- gsub(".*\\_", "", combined2_filtered2$Protein)
+
+Mat_2 <- combined2_filtered2[,c(1,63:74)]
+colnames(Mat_2) <- c("protein","C-1", "C-2", "C-3","C-4", "C-5", "C-6", "T-1", "T-2", "T-3", "T-4", "T-5", "T-6")
+Mat2_log2 <- as.matrix(log2(Mat_2[-1]))
+rownames(Mat2_log2) <- Mat_2$protein
+Mat2_log2[Mat2_log2 == "-Inf"] <- NA
+sparsity.reduction <- function(x, n = 0) {
+  x[rowSums(is.na(x)) <= n,]
+}
+Mat_1_NAredu <- sparsity.reduction(Mat1_log1, 11) # máximo de 5 valores NA por linha
+Mat_2_NAredu <- sparsity.reduction(Mat2_log2, 11) # máximo de 5 valores NA por linha
+
+missing_1 <- as.data.frame(Mat_1_NAredu) %>% 
+  vis_miss(warn_large_data = FALSE) +
+  coord_flip() + ylab("Protein IDs") + 
+  ggtitle("Experimento 1") +
+  theme(text = element_text(size = 30),
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+missing_2 <- as.data.frame(Mat_2_NAredu) %>% 
+  vis_miss(warn_large_data = FALSE) +
+  coord_flip() + ylab("Protein IDs") + 
+  ggtitle("Experimento 2") +
+  theme(text = element_text(size = 30),
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+ggarrange(missing_1, missing_2, ncol = 1, nrow = 2)
+```
+
+## Normalização das intensidades
+
+As intensidades das proteínas foram normalizadas usando centralização do desvio absoluto da mediana (MAD) presente no pacote {limma} para a linguagem R. Intensidades não normalizadas (log2) (cinza) e normalizadas por amostra (azul). A normalização foi realizada separadamente para cada experimento.
+
+```{r}
+#| echo: false
+#| warning: false
+#| fig-height: 18
+#| fig-width: 20
+#| fig.align: center
+Mat_1_norm <- normalizeBetweenArrays(Mat_1_NAredu, method = "scale")
+Mat_2_norm <- normalizeBetweenArrays(Mat_2_NAredu, method = "scale")
+
+par(mfrow = c(2,2), oma = c(5,5,10,5))
+
+boxplot(Mat_1_NAredu,
+        main = "Intensidades não normalizadas \n Experimento 1",
+        las = 2,
+        ylab = "log2(intensidades)",
+        cex.sub = 1.2,
+        frame = FALSE,
+        col = "#868686FF",
+         cex.main = 1.5,     # altera o tamanho da fonte no título
+        cex.axis = 1.8)   # altera o tamanho da fonte nos eixos x e y
+boxplot(Mat_1_norm,
+        main = "Intensidades normalizadas \n Experimento 1",
+        las = 2,
+        ylab = "log2(intensidades)",
+        cex.sub = 1.2,
+        frame = FALSE,
+        col = "#0073C2FF",
+         cex.main = 1.5,     # altera o tamanho da fonte no título
+        cex.axis = 1.8)   # altera o tamanho da fonte nos eixos x e y
+boxplot(Mat_2_NAredu,
+        main = "Intensidades não normalizadas \n Experimento 2",
+        las = 2,
+        ylab = "log2(intensidades)",
+        cex.sub = 1.2,
+        frame = FALSE,
+        col = "#868686FF",
+         cex.main = 1.5,     # altera o tamanho da fonte no título
+        cex.axis = 1.8)   # altera o tamanho da fonte nos eixos x e y
+boxplot(Mat_2_norm,
+        main = "Intensidades normalizadas \n Experimento 2",
+        las = 2,
+        ylab = "log2(intensidades)",
+        cex.sub = 1.2,
+        frame = FALSE,
+        col = "#0073C2FF",
+         cex.main = 1.5,     # altera o tamanho da fonte no título
+        cex.axis = 1.8)   # altera o tamanho da fonte nos eixos x e y
+```
+
+## Reprodutibilidade entre as replicatas
+
+A reprodutibilidade entre replicatas biológicas foi avaliada usando o coeficiente de correlação de Pearson entre as matrizes de intensidades normalizadas. A correlação foi calculada separadamente para cada experimento.
+
+```{r}
+#| echo: false
+#| warning: false
+#| layout-ncol: 2
+#| column: page
+M_1 <- cor(na.omit(Mat_1_norm))
+corrplot(M_1, method = "color", tl.col = "black")
+
+M_2 <- cor(na.omit(Mat_2_norm))
+corrplot(M_2, method = "color", tl.col = "black")
+```
+Redução de dimensionalidade. Figuras A e C. Scree plot mostrando a porcentagem de variância explicadas por cada componente (eigenvalues). Figuras B e D. Análise de componentes principais (PCA). Experimento 1 (A e B), experimento 2 (C e D).
+  
+
+```{r}
+#| echo: false
+#| warning: false
+#| fig-height: 10
+#| fig-width: 18
+
+FP_correlation_matrix_wide <- as.data.frame(t(na.omit(Mat_1_norm)))
+FP_correlation_matrix_wide_I <- clean_names(FP_correlation_matrix_wide)
+
+FP_pca <- prcomp(as.matrix(FP_correlation_matrix_wide), scale = TRUE)
+
+scree_exp_1 <- fviz_eig(FP_pca,
+         addlabels = TRUE,
+         ylim = c(0, 100),
+         main = "Experimento 1",
+         barfill = "#868686FF",
+         barcolor = "#868686FF") +
+  theme(text = element_text(size = 20))
+
+pca_exp_1 <- autoplot(pam(as.matrix(FP_correlation_matrix_wide_I),2),
+         frame = TRUE,
+         frame.type = "norm") +
+  geom_text_repel(label = rownames(FP_correlation_matrix_wide),
+                   nudge_y = .09,  size = 8) +
+  theme_classic(base_size = 20)
+
+change_color_FP1 <- pca_exp_1 + scale_fill_manual(values = c("#0073C2FF", "#EFC000FF")) +
+scale_color_manual(values = c("#0073C2FF", "#EFC000FF"))
+
+FP_correlation_matrix_wide2 <- as.data.frame(t(na.omit(Mat_2_norm)))
+FP_correlation_matrix_wide_I2 <- clean_names(FP_correlation_matrix_wide2)
+
+FP_pca_2 <- prcomp(as.matrix(FP_correlation_matrix_wide2), scale = TRUE)
+
+scree_exp_2 <- fviz_eig(FP_pca_2,
+         addlabels = TRUE,
+         ylim = c(0, 100),
+         main = "Experimento 2",
+         barfill = "#868686FF",
+         barcolor = "#868686FF") +
+  theme(text = element_text(size = 20))
+
+pca_exp_2 <- autoplot(pam(as.matrix(FP_correlation_matrix_wide_I2),2),
+         frame = TRUE,
+         frame.type = "norm") +
+  geom_text_repel(label = rownames(FP_correlation_matrix_wide2),
+                   nudge_y = .09,  size = 8) +
+  theme_classic(base_size = 20)
+
+change_color_FP2 <- pca_exp_2 + scale_fill_manual(values = c("#0073C2FF", "#EFC000FF")) +
+scale_color_manual(values = c("#0073C2FF", "#EFC000FF"))
+
+  ggarrange(scree_exp_1, change_color_FP1, scree_exp_2, change_color_FP2,
+  ncol = 2, nrow = 2, labels = "auto")
+  
+#Se eu configurar o mesmo tamanho das fontes o gráfico fica ruim, totalmente desconfigurado em relação ao primeiro nesse mesmo script.
+  
+```
+Heatmap padronizado para o experimento 2 (média = 0, SD = 1). Considerando apenas as proteínas presentes em todas as replicatas.
+
+```{r}
+#| echo: false
+#| warning: false
+#| layout-ncol: 2
+#| column: page
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+
+data_subset_norm_1 <- t(apply(na.omit(Mat_1_norm), 1, cal_z_score))
+pheatmap(data_subset_norm_1, show_rownames = FALSE, main = "Experimento 1")
+
+data_subset_norm_2 <- t(apply(na.omit(Mat_2_norm), 1, cal_z_score))
+pheatmap(data_subset_norm_2, show_rownames = FALSE, main = "Experimento 2")
+```
+Clusterização hierarquica (Experimento 2) considerando apenas as proteínas presentes em todas as replicatas.
+
+```{r}
+#| echo: false
+#| warning: false
+#| fig-height: 18
+#| fig-width: 18
+#| layout-ncol: 2
+#| column: page
+my_hclust_gene_1 <- hclust(dist(na.omit(Mat_1_norm)), method = "complete")
+as.dendrogram(my_hclust_gene_1) %>%
+  plot(horiz = TRUE)
+
+hc_1 <- as.dendrogram(my_hclust_gene_1) %>%
+  color_branches(k = 3) %>%
+  color_labels(k = 3)
+
+circlize_dendrogram(hc_1,
+                    labels_track_height = 0.05,
+                    dend_track_height = 0.5)
+
+my_hclust_gene_2 <- hclust(dist(na.omit(Mat_2_norm)), method = "complete")
+as.dendrogram(my_hclust_gene_2) %>%
+  plot(horiz = TRUE)
+
+hc_2 <- as.dendrogram(my_hclust_gene_2) %>%
+  color_branches(k = 3) %>%
+  color_labels(k = 3)
+
+circlize_dendrogram(hc_2,
+                    labels_track_height = 0.05,
+                    dend_track_height = 0.5)  
+```
+## Abundância diferencial de proteínas estimada utilizando modelo linear (limma)
+
+Modelo linar para microarray (limma) aplicado aos experimentos 1 e 2 para células HPAEC (lisados). Plot para o desvio padrão residual vs a média de expressão para o modelo ajustado. Figura A. Experimento 1. Figura B. Experimento 2. Os pontos vermelhos ou azuis indicam proteínas com p-value < 0.05.
+
+```{r}
+#| echo: false
+#| warning: false
+#| layout-ncol: 2
+#| column: page
+samples_FP <- c("C-1", "C-2", "C-3","C-4", "C-5", "C-6", "T-1", "T-2", "T-3", "T-4", "T-5", "T-6")
+condition_FP <- rep(c("Controle", "Tratado"), c(6,6))
+id_FP <- c(1:12)
+sample_ID_FP <- data.frame(id_FP, condition_FP)
+rownames(sample_ID_FP) <- samples_FP
+
+p_FP <- sample_ID_FP
+x1_FP <- Mat_1_norm
+
+eset_1 <- ExpressionSet(assayData = x1_FP,
+                      phenoData = AnnotatedDataFrame(p_FP))
+
+x2_FP <- Mat_2_norm
+
+eset_2 <- ExpressionSet(assayData = x2_FP,
+                      phenoData = AnnotatedDataFrame(p_FP))
+
+# design matrix without intercept
+design_1 = model.matrix(~0+condition_FP,
+                      data = pData(eset_1))
+colnames(design_1) = c("Controle", "Tratado")
+fit_1 = lmFit(eset_1, design_1)
+contrast.matrix_1 = makeContrasts(Tratado-Controle, levels = design_1)
+fit_exp_1 = contrasts.fit(fit_1, contrast.matrix_1)
+efit_1 = eBayes(fit_exp_1)
+
+design_2 = model.matrix(~0+condition_FP,
+                      data = pData(eset_2))
+colnames(design_2) = c("Controle", "Tratado")
+fit_2 = lmFit(eset_2, design_2)
+contrast.matrix_2 = makeContrasts(Tratado-Controle, levels = design_2)
+fit_exp_2 = contrasts.fit(fit_2, contrast.matrix_2)
+efit_2 = eBayes(fit_exp_2)
+
+plotSA(efit_1, main = "Mean-variance trend (Experimento 1)")
+plotSA(efit_2, main = "Mean-variance trend (Experimento 2)")
+```
+Mudanças na abundancia das proteínas medida usando estatística empirica de Bayes (eBayes).
+  
+```{r}
+#| echo: false
+#| warning: false
+#| layout-ncol: 2
+#| column: page
+
+resultados_exp_1 <- decideTests(efit_1)
+summary(resultados_exp_1) %>% 
+  kbl(caption = "Multiple Testing Across Genes and Contrasts (Experimento 1)",
+      digits = 2, align = "c") %>% 
+  kable_classic(full_width = F, html_font = "Cambria")
+
+resultados_exp_2 <- decideTests(efit_2)
+summary(resultados_exp_2) %>% 
+  kbl(caption = "Multiple Testing Across Genes and Contrasts (Experimento 2)",
+      digits = 2, align = "c") %>% 
+  kable_classic(full_width = F, html_font = "Cambria")
+```
+Mean-difference plot para as proteínas em ambos os experimentos.
+
+```{r}
+#| echo: false
+#| warning: false
+#| fig-height: 6
+#| fig-width: 12
+par(mfrow = c(1,2), oma = c(1,1,1,1))
+plotMD(efit_1, column = 1,
+       status = resultados_exp_1[,1], main = colnames(efit_1)[1], 
+       hl.col = c("#A73030FF", "#0073C2FF"))
+plotMD(efit_2, column = 1,
+       status = resultados_exp_2[,1], main = colnames(efit_2)[1],
+       col = c("#A73030FF", "#0073C2FF"))
+#Também não consigo alterar as cores
+
+```
+Tabela contendo as top-15 proteínas ranqueadas pelo p-valor (experimento 2). Estatística B = log da chance de que o gene seja diferencialmente expresso.
+
+```{r}
+#| echo: false
+#| warning: false
+#| layout-ncol: 1
+#| column: page
+
+ topTable(efit_1, coef = "Tratado - Controle", n = Inf, sort.by = "p") %>% 
+  mutate_if(is.numeric, funs(as.character(signif(., 3)))) %>% 
+  kbl(caption = "Proteínas ranqueados pelo p-valor ajustado (Experimento 1)",
+      digits = 2, align = "c") %>% 
+  kable_classic(full_width = T, html_font = "Arial")
+
+  topTable(efit_2, coef = "Tratado - Controle", n = Inf, sort.by = "p") %>% 
+  mutate_if(is.numeric, funs(as.character(signif(., 3)))) %>% 
+  kbl(caption = "Proteínas ranqueados pelo p-valor ajustado (Experimento 2)",
+      digits = 2, align = "c") %>% 
+  kable_classic(full_width = T, html_font = "Arial")
+```
+Volcano plot para proteínas com abundância diferencial. Proteínas significativamente mais abundantes após tratamento com PABj (vermelho). Proteínas significativamente menos abundantes após tratamento com PABj. Linha horizontal indica o limiar para significância considerando o p-valor ajustado para múltiplas comparações. Apenas experimento 2.
+
+```{r}
+#| echo: false
+#| warning: false
+#| fig-width: 16
+#| fig-height: 13
+
+df_FP <- topTable(efit_1, coef = "Tratado - Controle",
+                     n = Inf, sort.by = "p")
+
+volcano_DE_1_FP <- df_FP %>% 
+  mutate(Abundance = case_when(logFC > 0 & adj.P.Val <= 0.05 ~ "Up-regulated",
+  logFC < 0 & adj.P.Val <= 0.05 ~ "Down-regulated", TRUE ~ "Unchanged"))
+
+df_pvalue_1_FP <- df_FP %>% 
+  filter(adj.P.Val <= .05)
+
+ggplot(volcano_DE_1_FP, aes(x = logFC,
+                          y = -log10(adj.P.Val))) +
+  geom_point(alpha = 0.4,
+             size = 6,  # novo parâmetro adicionado
+         color = case_when(volcano_DE_1_FP$Abundance == "Up-regulated" ~ "#3fae0d",
+                        volcano_DE_1_FP$Abundance == "Down-regulated" ~ "#f44336",
+                                            TRUE ~ "#868686FF")) +
+  geom_text_repel(data = df_pvalue_1_FP,
+                  aes(x = logFC,
+                      y = -log10(adj.P.Val), label = rownames(df_pvalue_1_FP)),
+                  box.padding   = 0.35, 
+                  point.padding = 0.5,
+                  min.segment.length = 0,
+                  max.overlaps = getOption("ggrepel.max.overlaps", default = 10),
+                  segment.color = 'grey50',
+                  show.legend = NULL,
+                  size = 10) + # tamanho da fonte
+ geom_hline(yintercept = 1.3, linetype = "dashed", color = "black") +
+xlab("Log2FC") + ylab("-log10(adj. p-value)") + # nome do eixo x corrigido
+theme_classic() + theme(text = element_text(size = 24, family = "Arial"), # tamanho e tipo da fonte
+plot.title = element_text(size = 30, hjust = 0.5, family = "Arial"), # tamanho e tipo da fonte do título do gráfico
+axis.title = element_text(size = 24, family = "Arial"), # tamanho e tipo da fonte dos títulos dos eixos
+axis.text = element_text(size = 24, family = "Arial")) + # tamanho e tipo da fonte dos valores dos eixos
+labs(title = "Experimento 1") + ylim(0, 12) + xlim(-5, 5) # Altera os limites do eixo Y e X. 
+
+
+
+df_FP <- topTable(efit_2, coef = "Tratado - Controle",
+                     n = Inf, sort.by = "p")
+
+volcano_DE_2_FP <- df_FP %>% 
+  mutate(Abundance = case_when(logFC > 0 & adj.P.Val <= 0.05 ~ "Up-regulated",
+  logFC < 0 & adj.P.Val <= 0.05 ~ "Down-regulated", TRUE ~ "Unchanged"))
+
+df_pvalue_2_FP <- df_FP %>% 
+  filter(adj.P.Val <= .05)
+
+ggplot(volcano_DE_2_FP, aes(x = logFC,
+                          y = -log10(adj.P.Val))) +
+  geom_point(alpha = 0.4,
+             size = 6,  # novo parâmetro adicionado
+         color = case_when(volcano_DE_2_FP$Abundance == "Up-regulated" ~ "#3fae0d",
+                        volcano_DE_2_FP$Abundance == "Down-regulated" ~ "#f44336",
+                                            TRUE ~ "#868686FF")) +
+  geom_text_repel(data = df_pvalue_2_FP,
+                  aes(x = logFC,
+                      y = -log10(adj.P.Val), label = rownames(df_pvalue_2_FP)),
+                  box.padding   = 0.35, 
+                  point.padding = 0.5,
+                  min.segment.length = 0,
+                  max.overlaps = getOption("ggrepel.max.overlaps", default = 10),
+                  segment.color = 'grey50',
+                  show.legend = NULL,
+                  size = 10) + # tamanho da fonte
+ geom_hline(yintercept = 1.3, linetype = "dashed", color = "black") +
+xlab("Log2FC") + ylab("-log10(adj. p-value)") + # nome do eixo x corrigido
+theme_classic() + theme(text = element_text(size = 24, family = "Arial"), # tamanho e tipo da fonte
+plot.title = element_text(size = 30, hjust = 0.5, family = "Arial"), # tamanho e tipo da fonte do título do gráfico
+axis.title = element_text(size = 24, family = "Arial"), # tamanho e tipo da fonte dos títulos dos eixos
+axis.text = element_text(size = 24, family = "Arial")) + # tamanho e tipo da fonte dos valores dos eixos
+labs(title = "Experimento 2") + ylim(0, 12) + xlim(-4, 4) # Altera os limites do eixo Y e X. 
+
+```
